@@ -6,12 +6,14 @@
 ### Kaon Thana 4/22/2022
 ---
 - name: PB to compare Google Cloud IPs vs current 'google_cdn' object in firewall
-### We variablize the host. In Tower we will set the host to the user firewall
-  hosts: "{{ var_hosts }}"
+  hosts: firewall_host1
   gather_facts: false
   vars:
-### Fortinet specific vars for Ansible to connect
+### Fortinet specific vars for Ansible to connect - https://galaxy.ansible.com/fortinet/fortios
     ansible_python_interpreter: /usr/bin/python3
+    ansible_user: user
+    ansible_password: password
+    ansible_connection: httpapi
     ansible_httpapi_use_ssl: yes
     ansible_httpapi_validate_certs: no
     ansible_httpapi_port: 443
