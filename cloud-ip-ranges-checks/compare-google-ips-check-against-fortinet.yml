@@ -9,7 +9,7 @@
   hosts: firewall_host1
   gather_facts: false
   vars:
-### Fortinet specific vars for Ansible to connect - https://galaxy.ansible.com/fortinet/fortios
+    ### Fortinet specific vars for Ansible to connect - https://galaxy.ansible.com/fortinet/fortios
     ansible_python_interpreter: /usr/bin/python3
     ansible_user: user
     ansible_password: password
@@ -19,25 +19,25 @@
     ansible_httpapi_port: 443
     ansible_network_os: fortinet.fortios.fortios
     vdom: "root"
-### Variable to store list of 'google_cdn' ips as a list from the user firewall
+    ### Variable to store list of 'google_cdn' ips as a list from the user firewall
     google_ip_list: []
-### Variable to store list of Google Cloud IP addresses we retrieve from the internet
+    ### Variable to store list of Google Cloud IP addresses we retrieve from the internet
     google_cdn_ipv4_list: []
-### Variable to store the list difference result
+    ### Variable to store the list difference result
     missing_google_ips: []
   tasks:
-### GET request to retrieve the current json data of Google Cloud IP Ranges
+    ### GET request to retrieve the current json data of Google Cloud IP Ranges
     - name: Get all google cloud ip ranges as json result
       uri:
         url: "https://www.gstatic.com/ipranges/goog.json"
         method: GET
         validate_certs: no
       register: google_web_json_result
-### Ansible will register a change here, we can ignore it.
+      ### Ansible will register a change here, we can ignore it.
       changed_when: false
       delegate_to: localhost
 
-### Extract only IPv4 Addresses and add to a flat list
+    ### Extract only IPv4 Addresses and add to a flat list
     - set_fact:
         google_cdn_ipv4_list: "{{ google_cdn_ipv4_list + [ item['ipv4Prefix'] ] }}"
       loop: "{{ google_web_json_result.json.prefixes }}"
@@ -45,7 +45,7 @@
       changed_when: false
       delegate_to: localhost
 
-### Hit the firewall once here to retrieve the object. This object does not contain IP/Mask info only names
+    ### Hit the firewall once here to retrieve the object. This object does not contain IP/Mask info only names
     - name: Get google_cdn list of objects from firewall
       fortinet.fortios.fortios_configuration_fact:
         vdom:  "{{ vdom }}"
@@ -55,7 +55,7 @@
       register: google_networks_objects
       changed_when: false
 
-### For each name in 'google_cdn' object we ask the firewall to give us back the IP/Mask info. Many API hits here.
+    ### For each name in 'google_cdn' object we ask the firewall to give us back the IP/Mask info. Many API hits here.
     - name: Iterate through every Google object and extract subnet info
       fortinet.fortios.fortios_configuration_fact:
         vdom:  "{{ vdom }}"
@@ -66,23 +66,23 @@
       loop: "{{ google_networks_objects.meta.results[0]['member'] }}"
       changed_when: false
 
-### The returned IP and Subnet info is in form 10.10.10.10 255.255.255.0. These Filters translate that to 10.10.10.10/24
-### List is populated with all 'google_cdn' IP/Mask in correct format for comparison
+    ### The returned IP and Subnet info is in form 10.10.10.10 255.255.255.0. These Filters translate that to 10.10.10.10/24
+    ### List is populated with all 'google_cdn' IP/Mask in correct format for comparison
     - set_fact:
         google_ip_list: "{{ google_ip_list + [ item.meta.results[0].subnet | replace(' ','/') | ansible.netcommon.ipaddr ] }}"
       loop: "{{ google_item.results }}"
       changed_when: false
       delegate_to: localhost
 
-### Use ansible difference filter to compare list1 to list2. It shows items that are in list1 but not in list2
+    ### Use ansible difference filter to compare list1 to list2. It shows items that are in list1 but not in list2
     - name: Show the difference in lists
       set_fact:
         missing_google_ips: "{{ google_cdn_ipv4_list | difference(google_ip_list) }}"
       changed_when: false
       delegate_to: localhost
 
-### If an IP Subnet exists in the google cdn ipv4 list but not on the firewall 'google_cdn object' then
-### we fail the PB and Tower will send an email with the list
+    ### If an IP Subnet exists in the google cdn ipv4 list but not on the firewall 'google_cdn object' then
+    ### we fail the PB and Tower will send an email with the list
     - debug:
         msg: "List of missing Google Subnets that need to be added to Firewall: {{ missing_google_ips }}"
       failed_when: missing_google_ips | length>0
