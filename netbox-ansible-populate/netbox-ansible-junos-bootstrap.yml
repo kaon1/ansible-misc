@@ -11,7 +11,7 @@
     ansible_ssh_private_key_file:
     netbox_url:
     netbox_token:
-    platform: "junos"
+    platform: "{{ ansible_network_os }}"
     site:
     device_role: "access_switch"
    tasks:
