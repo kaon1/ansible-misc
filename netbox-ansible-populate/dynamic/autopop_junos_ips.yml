@@ -1,0 +1,51 @@
+---
+- name: "Gather Juniper IPs and Auto-Populate Netbox"
+  hosts:
+  gather_facts: False
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+    - name: Collect all junos ips listed from show interfaces terse
+      junipernetworks.junos.junos_command:
+        commands: show interfaces terse
+        display: json
+      register: junos_output
+
+    - name: Parse IPs
+      set_fact:
+        ip_list: "{{ junos_output.stdout | json_query('[*].\"interface-information\"[*].\"physical-interface\"[*].\"logical-interface\"[*].\"address-family\"[*].\"interface-address\"[*].\"ifa-local\"[*].data') | flatten }}"
+      delegate_to: localhost
+
+    - name: Match IP to Int Name with custom filter
+      set_fact:
+        name_ip_map: "{{ ip_list | map_ip_name(junos_output.stdout) }}"
+      delegate_to: localhost
+
+    - name: "Add interfaces to device in netbox"
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          device: "{{ inventory_hostname }}"
+          name: "{{ item.intf_name }}"
+          type: other
+        state: present
+        validate_certs: no
+      loop: "{{ name_ip_map }}"
+      delegate_to: localhost
+
+    - name: "ADD all IPs to IPAM and link to device"
+      netbox.netbox.netbox_ip_address:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          family: 4
+          address: "{{ item.ip }}"
+          status: active
+          assigned_object:
+            name: "{{ item.intf_name }}"
+            device: "{{ inventory_hostname }}"
+        state: present
+        validate_certs: no
+      loop: "{{ name_ip_map }}"
+      delegate_to: localhost
