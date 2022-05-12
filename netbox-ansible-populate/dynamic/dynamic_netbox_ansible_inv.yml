@@ -1,0 +1,13 @@
+## Ansible Plugin file for dynamic inventory through netbox
+---
+plugin: netbox.netbox.nb_inventory
+api_endpoint:
+# token: "{{ lookup('env','NETBOX_API_KEY') }}"
+validate_certs: false
+config_context: true
+compose:
+ ansible_network_os: platform.slug
+ ansible_connection: custom_fields.ansible_connection
+device_query_filters:
+ - status: 'active'
+ - tag: 'tower_inv'
