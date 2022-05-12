@@ -1,0 +1,108 @@
+### Playbook to bootstrap netbox inventory with a list of juniper devices provided by static inventory file
+# Uses ansible gather_facts to grab net_version, serial number and net_model
+# Also perform a dig to get a FQDN which we can use as device name instead of the inventory_name
+
+---
+- name: PB to Bootstrap Netbox Inventory
+  hosts: junosinv
+  gather_facts: True
+  vars:
+    ansible_user:
+    ansible_ssh_private_key_file:
+    netbox_url:
+    netbox_token:
+    platform: "junos"
+    site:
+    device_role: "access_switch"
+   tasks:
+    - name: "Check if net_version exists"
+      ### If ansible_facts does not provide net_version we manually fill it in as 111
+      set_fact:
+        net_version: "111"
+      when: ansible_facts['net_version'] is undefined
+
+    - name: "Assign net version"
+      set_fact:
+        net_version: "{{ ansible_facts['net_version'] }}"
+      when: ansible_facts['net_version'] is defined
+    
+    ### Optional
+    - name: "Resolve FQDN Hostname - perform DIG"
+      ### Perform linux DIG command to get the reverse DNS record for the IP. THis will be our new hostname for netbox
+      raw: "dig -x {{ ansible_host }} +short | sed -e 's/.$//'"
+      register: dig_result
+      delegate_to: localhost
+      
+    ### Optional
+    - name: "TASK 11: Assign dig result to fqdn var"
+      ### If Reverse DNS exists, trim whhite spaces and assing to var
+      set_fact:
+        fqdn: "{{ dig_result.stdout_lines[0] | trim}}"
+      when: dig_result.stdout_lines[0] is defined
+  
+    ### Optional
+    - name: "TASK 12: If no dig result, assign placeholder fqdn value"
+      ### If no reverse DNS, then set a inventory hostname and IP as the hostname
+      set_fact:
+        fqdn: "{{ inventory_hostname }}-no-dns-{{ ansible_host }}"
+      when: dig_result.stdout_lines[0] is undefined
+       
+    - name: "Add Device to NetBox"
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "{{ fqdn }}"
+          device_type: "{{ ansible_facts['net_model'] }}"
+          platform: "{{ platform }}"
+          serial: "{{ ansible_facts['net_serialnum'] }}"
+          site: "{{ site }}"
+          device_role: "{{ device_role }}"
+          custom_fields:
+            code_version: "{{ net_version }}"
+        state: present
+        validate_certs: no
+      delegate_to: localhost
+      
+    - name: "Add a new Interface called management_interface to device"
+      ### this interface will be used as the primary IP and interface for the device
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          device: "{{ fqdn }}"
+          name: Management_Interface
+          type: other
+        state: present
+        validate_certs: no
+      delegate_to: localhost
+
+    - name: "Add IP address of ansible host to IPAM"
+      netbox.netbox.netbox_ip_address:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          family: 4
+          address: "{{ ansible_host }}/32"
+          status: active
+          assigned_object:
+            name: Management_Interface
+            device: "{{ fqdn }}"
+        state: present
+        validate_certs: no
+      delegate_to: localhost
+
+    - name: "Assign ansible_host IP as the primary interface for the device"
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "{{ fqdn }}"
+          device_type: "{{ ansible_facts['net_model'] }}"
+          platform: "{{ platform }}"
+          serial: "{{ ansible_facts['net_serialnum'] }}"
+          status: Active
+          primary_ip4: "{{ ansible_host }}/32"
+        state: present
+        validate_certs: no
+      delegate_to: localhost
