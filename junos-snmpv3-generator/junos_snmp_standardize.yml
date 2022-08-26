@@ -1,0 +1,49 @@
+---
+- name: Standardize System SNMP on Junos Config
+  # variable host
+  hosts: 
+  gather_facts: false
+  vars:
+    # force python3 for legacy environments. We need python3 for the imported libraries in filter_plugins
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+    # get snmpv3 info from the box (we need to extract the engineID)
+    - name: get snmp info
+      junipernetworks.junos.junos_command:
+        commands: show snmp v3
+        display: text
+      register: output_snmp_text
+      changed_when: false
+      
+    # use regex to extract the engine id and strip out blank spaces
+    - name: parse snmp engine id
+      set_fact:
+        engine_id: "{{ output_snmp_text.stdout[0] | regex_search('.*Local engine ID: (.*[0-9a-fA-F])', '\\1') | replace(' ', '') }}"
+      changed_when: false
+      
+    # use the custom function gen_snmp_9key defined in filter.py (takes two inputs -- engine id and snmp plain text pass)
+    - name: generate snmp_9key
+      set_fact:
+        snmp_9key: "{{ engine_id[0] | gen_snmp_9key(snmp_cred)}}"
+      changed_when: false
+      
+    # generate the config snipper of code to be sent to junos. Use jinja2 template defined in directory
+    - name: Template Lookup and Config Generation
+      template:
+        src: "templates/junos-snmp.j2"
+        # create a temp candidate config file to be loaded in next task
+        dest: "{{ inventory_hostname }}-snmp.conf"
+      delegate_to: localhost
+      # this task will always generate a change, don't need to see it.
+      changed_when: false
+
+    - name: Load Standard System Parameters to Juniper Device
+      junipernetworks.junos.junos_config:
+        # if TRUE this will be a DRY RUN (no changes)
+        check_commit: "{{ check_commit }}"
+        src_format: text
+        # we use the replace flag to overwrite specific blocks of config
+        update: replace
+        # temp candidate config file created in previous task
+        src: "{{ inventory_hostname }}-snmp.conf"
+      register: result
