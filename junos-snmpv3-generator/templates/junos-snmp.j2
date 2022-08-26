@@ -1,0 +1,43 @@
+replace:
+snmp {
+    description {{ inventory_hostname }};
+    location {{ device_site }};
+    contact "some_contact_here";
+    v3 {
+        usm {
+            local-engine {
+                user someuser {
+                    authentication-sha {
+                        authentication-key "{{ snmp_9key }}"; ## SECRET-DATA
+                    }
+                    privacy-aes128 {
+                        privacy-key "{{ snmp_9key }}"; ## SECRET-DATA
+                    }
+                }
+            }
+        }
+        vacm {
+            security-to-group {
+                security-model usm {
+                    security-name someuser {
+                        group somegroup;
+                    }
+                }
+            }
+            access {
+                group somegroup {
+                    default-context-prefix {
+                        security-model usm {
+                            security-level privacy {
+                                read-view view-all;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    view view-all {
+        oid 1 include;
+    }
+    }
