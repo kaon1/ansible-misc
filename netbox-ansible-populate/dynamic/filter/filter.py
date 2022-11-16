@@ -39,6 +39,7 @@ class FilterModule:
         for ip in ip_list:
             ##skip juniper self mgmt ips that start with 128.0
             if ip.startswith('128.'): continue
+            if ip.startswith('0x'): continue
 
             ip_by_name = jmespath.search(
                     '[*].\"interface-information\"[*].\"physical-interface\"[*].\"logical-interface\"[?\"address-family\"[0].\"interface-address\"[0].\"ifa-local\"[?\"data"==`'+ip+'`]].name[*].data',

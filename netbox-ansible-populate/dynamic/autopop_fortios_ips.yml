@@ -1,9 +1,8 @@
 ---
 - name: "Gather Fortios IPs and Auto-Populate Netbox"
-  hosts:
+  hosts: "{{ var_hosts }}"
   gather_facts: False
   vars:
-    ansible_python_interpreter: /usr/bin/python3
     ansible_httpapi_use_ssl: yes
     ansible_httpapi_validate_certs: no
     ansible_httpapi_port: 443
@@ -11,41 +10,54 @@
   tasks:
     - fortinet.fortios.fortios_monitor_fact:
         vdom: "root"
-        params:
-          scope: global
-          include_vlan: Yes
-          include_aggregate: Yes
-        selector: 'system_interface'
+        selector: 'system_available-interfaces'
       register: fortios_facts
 
-    - name: "Add interfaces to device in NetBox"
+    - name: "TASK 31: NETBOX >> Add interfaces to device"
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         data:
           device: "{{ inventory_hostname }}"
-          name: "{{ item.value['name'] }}"
-          description: "{{ item.value['alias'] }}"
+          name: "{{ item['name'] }}"
+          mac_address: "{{ item['mac_address'] }}"
           type: other
         state: present
         validate_certs: no
-      loop: "{{ fortios_facts['meta']['results'] | dict2items }}"
-      when: item.value['ip'] != "0.0.0.0"
+      loop: "{{ fortios_facts['meta']['results'] }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: 
+        - item['status'] is defined
+        - item['link'] is defined
+        - item['status'] == "up"
+        - item['link'] == "up"
+        - item['ipv4_addresses'][0]['ip'] is defined
+        - item['mac_address'] is defined
       delegate_to: localhost
 
-    - name: "ADD all IPs to IPAM and link to device"
+    - name: "TASK 32: NETBOX >> ADD all IPs to IPAM and link to device"
       netbox.netbox.netbox_ip_address:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         data:
-          family: 4
-          address: "{{ item.value['ip'] }}/{{ item.value['mask'] }}"
+          address: "{{item['ipv4_addresses'][0]['ip'] }}/{{ item['ipv4_addresses'][0]['cidr_netmask'] }}"
           status: active
           assigned_object:
-            name: "{{ item.value['name'] }}"
+            name: "{{ item['name'] }}"
             device: "{{ inventory_hostname }}"
         state: present
         validate_certs: no
-      loop: "{{ fortios_facts['meta']['results'] | dict2items }}"
-      when: item.value['ip'] != "0.0.0.0"
+      loop: "{{ fortios_facts['meta']['results'] }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: 
+        - item['status'] is defined
+        - item['link'] is defined
+        - item['status'] == "up"
+        - item['link'] == "up"
+        - item['ipv4_addresses'][0]['ip'] is defined
+        - item['mac_address'] is defined
       delegate_to: localhost
+      register: ipam_output
+      changed_when: False

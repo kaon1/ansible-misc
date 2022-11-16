@@ -1,27 +1,46 @@
 ---
 - name: "Gather Juniper IPs and Auto-Populate Netbox"
-  hosts:
+  hosts: "{{ var_hosts }}"
   gather_facts: False
-  vars:
-    ansible_python_interpreter: /usr/bin/python3
   tasks:
-    - name: Collect all junos ips listed from show interfaces terse
+    - name: "Connect to Juniper Device and Collect Facts"
+      junipernetworks.junos.junos_facts:
+
+    - name: "TASK 1: Check if net_version exists"
+      set_fact:
+        net_version: "12"
+      when: ansible_facts['net_version'] is undefined
+      changed_when: False
+
+    - name: "TASK 2: Assign net version"
+      set_fact:
+        net_version: "{{ ansible_facts['net_version'] }}"
+      when: ansible_facts['net_version'] is defined
+      changed_when: False
+     
+    - name: collect default set of facts
       junipernetworks.junos.junos_command:
         commands: show interfaces terse
         display: json
       register: junos_output
+      when: 
+        - net_version.split('.')[0]|int > 13
 
     - name: Parse IPs
       set_fact:
         ip_list: "{{ junos_output.stdout | json_query('[*].\"interface-information\"[*].\"physical-interface\"[*].\"logical-interface\"[*].\"address-family\"[*].\"interface-address\"[*].\"ifa-local\"[*].data') | flatten }}"
       delegate_to: localhost
+      when: 
+        - net_version.split('.')[0]|int > 13
 
-    - name: Match IP to Int Name with custom filter
+    - name: Match IP to Int Name
       set_fact:
         name_ip_map: "{{ ip_list | map_ip_name(junos_output.stdout) }}"
       delegate_to: localhost
+      when: 
+        - net_version.split('.')[0]|int > 13
 
-    - name: "Add interfaces to device in netbox"
+    - name: "TASK 31: NETBOX >> Add interfaces to device"
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -33,13 +52,15 @@
         validate_certs: no
       loop: "{{ name_ip_map }}"
       delegate_to: localhost
+      when: 
+        - net_version.split('.')[0]|int > 13
 
-    - name: "ADD all IPs to IPAM and link to device"
+    - name: "TASK 32: NETBOX >> ADD all IPs to IPAM and link to device"
       netbox.netbox.netbox_ip_address:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         data:
-          family: 4
+#          family: 4
           address: "{{ item.ip }}"
           status: active
           assigned_object:
@@ -49,3 +70,6 @@
         validate_certs: no
       loop: "{{ name_ip_map }}"
       delegate_to: localhost
+      changed_when: False
+      when: 
+        - net_version.split('.')[0]|int > 13

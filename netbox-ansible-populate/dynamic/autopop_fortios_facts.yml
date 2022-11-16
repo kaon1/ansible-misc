@@ -1,28 +1,89 @@
 ---
 - name: "Gather Fortios Facts and Auto-Populate Netbox with key values"
-  hosts:
+  hosts: "{{ var_hosts }}"
   gather_facts: False
   vars:
-    ansible_python_interpreter: /usr/bin/python3
     ansible_httpapi_use_ssl: yes
     ansible_httpapi_validate_certs: no
     ansible_httpapi_port: 443
+    ansible_network_os: fortinet.fortios.fortios
   tasks:
     - fortinet.fortios.fortios_monitor_fact:
         vdom: "root"
-        selector: 'system_status'
-      register: fortios_facts
+        selector: 'system_firmware'
+      register: fortios_firmware_facts
 
-    - name: "Confirm Device Values Match in Netbox"
+    - fortinet.fortios.fortios_monitor_fact:
+        vdom: "root"
+        selector: 'system_ha-peer'
+      register: fortios_ha_facts
+
+    - name: "NETBOX GRAB DEVICE TYPE BY PLATFORM ID"
+      uri:
+        url: "{{ netbox_url }}/api/dcim/device-types/?cf_platform_id={{ fortios_firmware_facts['meta']['results']['current']['platform-id'] }}"
+        method: GET
+        validate_certs: no
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+      register: device_type_results
+      delegate_to: localhost    
+
+    - name: "CONFIRM SOLO FIREWALL TO NETBOX"
       netbox.netbox.netbox_device:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
         data:
           name: "{{ inventory_hostname }}"
-          serial: "{{ fortios_facts['meta']['serial'] }}"
+          device_type: "{{ device_type_results['json']['results'][0]['slug']}}"
+          platform: "{{ hostvars[inventory_hostname]['platforms'][0] }}"
+          device_role: "{{ hostvars[inventory_hostname]['device_roles'][0] }}"
+          site: "{{ hostvars[inventory_hostname]['sites'][0] }}"
+          serial: "{{ fortios_ha_facts['meta']['serial'] }}"
           custom_fields:
-            code_version: "{{ fortios_facts['meta']['version'] }}"
+            code_version: "{{ fortios_firmware_facts['meta']['results']['current']['version'] }}"
+            imei: "{{ custom_fields['imei'] }}"
             ansible_connection: "{{ custom_fields['ansible_connection'] }}"
         state: present
         validate_certs: no
+      when: fortios_ha_facts['meta']['results']|length < 1
+      delegate_to: localhost
+
+    - name: "CONFIRM HA PAIR TO NETBOX - PRIMARY NODE"
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "{{ inventory_hostname }}"
+          device_type: "{{ device_type_results['json']['results'][0]['slug']}}"
+          platform: "{{ hostvars[inventory_hostname]['platforms'][0] }}"
+          device_role: "{{ hostvars[inventory_hostname]['device_roles'][0] }}"
+          site: "{{ hostvars[inventory_hostname]['sites'][0] }}"
+          serial: "{{ fortios_ha_facts['meta']['results'][0]['serial_no'] }}"
+          custom_fields:
+            code_version: "{{ fortios_firmware_facts['meta']['results']['current']['version'] }}"
+            imei: "{{ custom_fields['imei'] }}"
+            ansible_connection: "{{ custom_fields['ansible_connection'] }}"
+        state: present
+        validate_certs: no
+      when: fortios_ha_facts['meta']['results']|length > 1
+      delegate_to: localhost
+
+    - name: "CONFIRM HA PAIR TO NETBOX - SECOND NODE"
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "{{ inventory_hostname }}_secondary_standby"
+          device_type: "{{ device_type_results['json']['results'][0]['slug']}}"
+          platform: "{{ hostvars[inventory_hostname]['platforms'][0] }}"
+          device_role: "{{ hostvars[inventory_hostname]['device_roles'][0] }}"
+          site: "{{ hostvars[inventory_hostname]['sites'][0] }}"
+          serial: "{{ fortios_ha_facts['meta']['results'][1]['serial_no'] }}"
+          custom_fields:
+            code_version: "{{ fortios_firmware_facts['meta']['results']['current']['version'] }}"
+            imei: "{{ custom_fields['imei'] }}"
+            ansible_connection: "{{ custom_fields['ansible_connection'] }}"
+        state: present
+        validate_certs: no
+      when: fortios_ha_facts['meta']['results']|length > 1
       delegate_to: localhost

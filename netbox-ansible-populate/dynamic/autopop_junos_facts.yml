@@ -1,16 +1,14 @@
 ---
 - name: "Gather Juniper Facts and Auto-Populate Netbox with key values"
-  hosts:
+  hosts: "{{ var_hosts }}"
   gather_facts: False
-  vars:
-    ansible_python_interpreter: /usr/bin/python3
   tasks:
     - name: "Connect to Juniper Device and Collect Facts"
       junipernetworks.junos.junos_facts:
 
     - name: "TASK 1: Check if net_version exists"
       set_fact:
-        net_version: "na"
+        net_version: "12"
       when: ansible_facts['net_version'] is undefined
       changed_when: False
 
@@ -20,7 +18,16 @@
       when: ansible_facts['net_version'] is defined
       changed_when: False
 
-    - name: "CONFIRM DEVICE TO NETBOX"
+    - name: "Gather Virtual Chassis Data"
+      junipernetworks.junos.junos_command:
+        commands: show virtual-chassis
+        display: json
+      register: output_vc_json
+      changed_when: False
+      when: 
+        - net_version.split('.')[0]|int > 13
+
+    - name: "FOR JUNOS Older than v13 -- CONFIRM Juniper to NETBOX"
       netbox.netbox.netbox_device:
         netbox_url: "{{ netbox_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -30,7 +37,60 @@
           serial: "{{ ansible_facts['net_serialnum'] }}"
           custom_fields:
             code_version: "{{ net_version }}"
+            imei: "{{ custom_fields['imei'] }}"
             ansible_connection: "{{ custom_fields['ansible_connection'] }}"
         state: present
         validate_certs: no
+      when: 
+        - net_version.split('.')[0]|int < 13
       delegate_to: localhost
+
+    - name: "CONFIRM Juniper Device Main VC to NETBOX - PRIMARY NODE"
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "{{ inventory_hostname }}"
+          device_type: "{{ ansible_facts['net_model'] }}"
+          platform: "{{ hostvars[inventory_hostname]['platforms'][0] }}"
+          device_role: "{{ hostvars[inventory_hostname]['device_roles'][0] }}"
+          site: "{{ hostvars[inventory_hostname]['sites'][0] }}"
+          serial: "{{item['member-serial-number'][0]['data']}}"
+          custom_fields:
+            code_version: "{{ net_version }}"
+            imei: "{{ custom_fields['imei'] }}"
+            ansible_connection: "{{ custom_fields['ansible_connection'] }}"
+        state: present
+        validate_certs: no
+      when: 
+        - net_version.split('.')[0]|int > 13
+        - item['member-id'][0]['data']|int == 0
+      delegate_to: localhost
+      loop: "{{ output_vc_json['stdout'][0]['virtual-chassis-information'][0]['member-list'][0]['member'] }}"
+      loop_control: 
+        label: "{{ item['member-id'][0]['data'] }}"
+
+    - name: "CONFIRM Juniper Device ALL VC Nodes to NETBOX - Other nodes"
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        data:
+          name: "{{ inventory_hostname }}_node_{{item['member-id'][0]['data']}}"
+          device_type: "{{ ansible_facts['net_model'] }}"
+          platform: "{{ hostvars[inventory_hostname]['platforms'][0] }}"
+          device_role: "{{ hostvars[inventory_hostname]['device_roles'][0] }}"
+          site: "{{ hostvars[inventory_hostname]['sites'][0] }}"
+          serial: "{{item['member-serial-number'][0]['data']}}"
+          custom_fields:
+            code_version: "{{ net_version }}"
+            imei: "{{ custom_fields['imei'] }}"
+            ansible_connection: "{{ custom_fields['ansible_connection'] }}"
+        state: present
+        validate_certs: no
+      when: 
+        - net_version.split('.')[0]|int > 13
+        - item['member-id'][0]['data']|int != 0
+      delegate_to: localhost
+      loop: "{{ output_vc_json['stdout'][0]['virtual-chassis-information'][0]['member-list'][0]['member'] }}"
+      loop_control: 
+        label: "{{ item['member-id'][0]['data'] }}"
