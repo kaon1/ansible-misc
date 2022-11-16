@@ -1,0 +1,16 @@
+---
+- name: powershell script to sync prtg DB to standby server
+  hosts: primary_core
+  gather_facts: False
+  tasks:
+  ### the powershell script is an incremental robocopy of the "E:\ProgramData\Paessler" and "E:\Program Files (x86)\PRTG Network Monitor" drives
+    - name: Run basic PowerShell script
+      ansible.windows.win_command: 'cmd.exe /c "powershell.exe C:\prtg-db-sync\prtg-db-sync.ps1"'
+      become: yes
+      become_method: runas
+      become_user: SYSTEM
+      register: output
+      failed_when: output.failed
+    
+    - debug:
+        var: output

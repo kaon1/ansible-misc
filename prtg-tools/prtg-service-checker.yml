@@ -1,0 +1,85 @@
+---
+- name: Play to toggle Core active/passive
+  hosts: prtg_cores
+  gather_facts: False
+  vars:
+    prtg_services: ["PRTGCoreService","PRTGProbeService"]
+    active_standby_mode: "{{ active_standby_mode }}"
+  tasks:
+    - block:
+      - name: Checking Standy Core Server Status
+        win_service:
+          name: "{{ item }}"
+          state: stopped
+        with_items: "{{ prtg_services }}"
+        when: ansible_host == "standbyserver"
+        register: resultall
+
+      - name: Checking Active Core Server Status
+        win_service:
+          name: "{{ item }}"
+          state: started
+        with_items: "{{ prtg_services }}"
+        when: ansible_host == "activeserver"
+        register: resultall
+      when: active_standby_mode == "active"
+
+    - block:
+      - name: Checking Standby Core Server Status
+        win_service:
+          name: "{{ item }}"
+          state: started
+        with_items: "{{ prtg_services }}"
+        when: ansible_host == "standbyserver"
+        register: resultall
+
+      - name: Checking Active Core Server Status
+        win_service:
+          name: "{{ item }}"
+          state: stopped
+        with_items: "{{ prtg_services }}"
+        when: ansible_host == "activeserver"
+        register: resultall
+      when: active_standby_mode == "standby"
+
+- name: Play to toggle Active Probes
+  hosts: prtg_probes_active
+  gather_facts: False
+  vars:
+    prtg_services: "PRTGProbeService"
+    active_standby_mode: "{{ active_standby_mode }}"
+  tasks:
+    - name: Checking Probes Status ACTIVE MODE
+      win_service:
+        name: "PRTGProbeService"
+        state: started
+      when: active_standby_mode == "active"
+      register: resultall
+
+    - name: Checking Probes Status STANDBY MODE
+      win_service:
+        name: "PRTGProbeService"
+        state: stopped
+      when: active_standby_mode == "standby"
+      register: resultall
+
+- name: Play to toggle Standby Probes
+  hosts: prtg_probes_standby
+  gather_facts: False
+  vars:
+    prtg_services: "PRTGProbeService"
+    active_standby_mode: "{{ active_standby_mode }}"
+  tasks:
+    - name: Checking Probes Status ACTIVE MODE
+      win_service:
+        name: "PRTGProbeService"
+        state: stopped
+      when: active_standby_mode == "active"
+      register: resultall
+
+    - name: Checking Probes Status STANDBY MODE
+      win_service:
+        name: "PRTGProbeService"
+        state: started
+      when: active_standby_mode == "standby"
+      register: resultall

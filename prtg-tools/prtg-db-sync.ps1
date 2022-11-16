@@ -1,0 +1,2 @@
+robocopy "E:\ProgramData\Paessler" "\\stanbbyserver\Paessler" /mir /zb /mt:16 /tbd /r:1 /w:3 /fft /np
+robocopy "E:\Program Files (x86)\PRTG Network Monitor" "\\stanbbyserver\PRTG Network Monitor" /mir /zb /mt:16 /tbd /r:1 /w:3 /fft /np

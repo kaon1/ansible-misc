@@ -1,0 +1,77 @@
+---
+- name: Sync netbox and prtg device list
+  hosts: localhost
+  gather_facts: false
+  vars:
+    netbox_uri: "https://<URL>/api/dcim/devices/?limit=0&status=active&tag=prtg"
+    netbox_token: "{{ netbox_token }}"
+    prtg: "https://prtg<URL>"
+    api_creds: "&username=api_user_networking&passhash={{ prtg_passhash }}"
+    get_all_devices_uri: "/api/table.json?content=devices&output=json&columns=objid,probe,group,device,host,downsens,partialdownsens,downacksens,upsens,warnsens,pausedsens,unusualsens,undefinedsens&count=5000"
+    get_all_devices_call: "{{ prtg + get_all_devices_uri + api_creds }}"
+    netbox_list: []
+    prtg_list: []
+
+  tasks:
+    - name: Netbox GET All devices tagged with PRTG label
+      uri:
+        url: "{{ netbox_uri }}"
+        method: GET
+        validate_certs: no
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+      register: result
+      tags: always
+
+    - set_fact:
+        netbox_list: "{{ netbox_list + [item.name] }}"
+      loop: "{{ result.json.results }}"
+      tags: always
+      no_log: True
+
+    - name: PRTG GET All devices
+      uri:
+        url: "{{ get_all_devices_call }}"
+      register: result
+      tags: always
+
+    ### Ignore some devices that we don't need to check
+    - set_fact:
+        prtg_list: "{{ prtg_list + [item.device] }}"
+      loop: "{{ result.json.devices }}"
+      when: (item.device != 'Probe Device') and
+            (item.device != 'Core Device') and
+            (item.device != 'do_not_delete_for_cloning') and
+            (item.device != 'sFlow Aggregator') and
+            (not item.device | regex_search("Office Status"))
+      tags: always
+      no_log: True
+
+    ### perform two way diffs on each list -- Netbox vs PRTG and PRTG vs Netbox
+    - set_fact:
+        device_diff_additions: "{{ netbox_list | difference(prtg_list) }}"
+      tags: always
+
+    - set_fact:
+        device_diff_deletions: "{{ prtg_list | difference(netbox_list) }}"
+      tags: always
+
+    - name: LIST OF DEVICES TO ADD TO PRTG
+      debug:
+        var: device_diff_additions
+      tags: always
+      
+    ### Fail playbook and send alert if theres something missing
+    - name: LIST OF DEVICES NOT IN NETBOX
+      debug:
+        var: device_diff_deletions
+      tags: always
+      failed_when: device_diff_deletions|length > 0 or device_diff_additions|length > 0
+
+      
+    # - name: Add Missing Devices to PRTG
+    #   uri:
+    #     url: "{{ prtg }}/api/duplicateobject.htm?id=2436&name={{ item | urlencode }}&host={{ item | urlencode }}&targetid=2066{{ api_creds }}"
+    #   register: result
+    #   loop: "{{ device_diff_additions }}"
+    #   tags: [never, add]

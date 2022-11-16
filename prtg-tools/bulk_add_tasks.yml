@@ -1,0 +1,78 @@
+---
+### Tasks to be included in the bulk_add_new_device_netbox_prtg.yml main playbook
+- name: "TASK 0: NETBOX >> GRAB PRTG SITE ID BY NAME"
+  uri:
+  ### Get Device site ID from netbox (custom field). This ID Maps to PRTG Site ID
+    url: "{{ netbox_url }}/api/dcim/sites/?slug={{ item['device_site'] }}"
+    method: GET
+    validate_certs: no
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+  register: site_id_results
+  delegate_to: localhost
+
+- name: "TASK 1: SET PRTG SITE ID"
+  set_fact:
+    prtg_site_id: "{{ site_id_results.json.results[0].custom_fields.prtg_site_id }}"
+
+- name: "TASK 10: NETBOX >> ADD DEVICE TO NETBOX"
+  netbox.netbox.netbox_device:
+    netbox_url: "{{ netbox_url }}"
+    netbox_token: "{{ netbox_token }}"
+    data:
+      name: "{{ item['device_name'] }}"
+      device_type: "{{ item['device_type'] }}"
+      platform: "{{ item['device_platform'] }}"
+      site: "{{ item['device_site'] }}"
+      device_role: "{{ item['device_role'] }}"
+      tags:
+        - prtg
+    state: present
+    validate_certs: no
+  delegate_to: localhost
+
+- name: "TASK 11: NETBOX >> Add temporary interface for mgmt ip"
+  netbox.netbox.netbox_device_interface:
+    netbox_url: "{{ netbox_url }}"
+    netbox_token: "{{ netbox_token }}"
+    data:
+      device: "{{ item['device_name'] }}"
+      name: Management_Interface
+      type: other
+    state: present
+    validate_certs: no
+  delegate_to: localhost
+
+- name: "TASK 12: NETBOX >> ADD IP ADDRESS OF ANSIBLE HOST"
+  netbox.netbox.netbox_ip_address:
+    netbox_url: "{{ netbox_url }}"
+    netbox_token: "{{ netbox_token }}"
+    data:
+      family: 4
+      address: "{{ item['device_ip'] }}/{{ item['device_mask'] }}"
+      status: active
+      assigned_object:
+        name: Management_Interface
+        device: "{{ item['device_name'] }}"
+    state: present
+    validate_certs: no
+  delegate_to: localhost
+
+- name: "TASK 13: NETBOX >> ASSOCIATE IP ADDRESS TO DEVICE"
+  netbox.netbox.netbox_device:
+    netbox_url: "{{ netbox_url }}"
+    netbox_token: "{{ netbox_token }}"
+    data:
+      name: "{{ item['device_name'] }}"
+      device_type: "{{ item['device_type'] }}"
+      platform: "{{ item['device_platform'] }}"
+      status: Active
+      primary_ip4: "{{ item['device_ip'] }}/{{ item['device_mask'] }}"
+    state: present
+    validate_certs: no
+  delegate_to: localhost
+
+- name: "TASK 14: ADD DEVICE TO PRTG"
+  uri:
+    url: "{{ prtg_url }}/api/duplicateobject.htm?id=2436&name={{ item['device_name'] | urlencode }}&host={{ item['device_ip'] | urlencode }}&targetid={{ prtg_site_id }}{{ prtg_api_creds }}"
+  register: result

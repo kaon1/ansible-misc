@@ -1,0 +1,18 @@
+### This playbook adds a "new" network device to both PRTG and Netbox
+### We clone an exisiting device in PRTG and place the new object inside the corresponding Site mapped in netbox (same site ID)
+### In netbox, we add the device, IP, role, type and tag it with the 'PRTG' tag
+### The PRTG tag in netbox is used later to check that all devices in netbox are also in PRTG (compliance check)
+---
+- name: Play to Bulk Add new devices to netbox and prtg
+  hosts: localhost
+  gather_facts: false
+  vars:
+  ### Grab secret keys from Ansible Tower runtime execution (inject variables)
+    netbox_url: "{{ netbox_url }}"
+    netbox_token: "{{ netbox_token }}"
+    prtg_url: "{{ prtg_url }}"
+    prtg_api_creds: "&username=api_user_networking&passhash={{ prtg_passhash }}"
+  tasks:
+    - name: include all devices
+      include_tasks: bulk_add_tasks.yml
+      with_list: "{{ device_list }}"
